@@ -1,0 +1,94 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '10'))
+    }
+
+    tools {
+        // Configure in Jenkins: Manage Jenkins > Tools > NodeJS installations
+        // Adjust the tool name to match your Jenkins NodeJS installation (Node.js 18+; Node 22+ recommended for Angular 22).
+        nodejs 'NodeJS'
+    }
+
+    environment {
+        FRONTEND_DIR = 'frontend'
+        CI = 'true'
+        NPM_CONFIG_FUND = 'false'
+        NPM_CONFIG_AUDIT = 'false'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Tool Versions') {
+            steps {
+                dir(env.FRONTEND_DIR) {
+                    sh '''
+                        set -e
+                        echo "== Node =="
+                        node -v
+                        echo "== npm =="
+                        npm -v
+                        echo "== Angular CLI (local) =="
+                        npx --no-install ng version || ./node_modules/.bin/ng version || true
+                    '''
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir(env.FRONTEND_DIR) {
+                    sh 'npm ci'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                dir(env.FRONTEND_DIR) {
+                    // Angular 22 uses @angular/build:unit-test (Vitest/jsdom in this project).
+                    // --watch=false ensures a single non-interactive CI run.
+                    sh 'npm run test -- --watch=false'
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir(env.FRONTEND_DIR) {
+                    // Default configuration is production (per angular.json).
+                    sh 'npm run build'
+                }
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                dir(env.FRONTEND_DIR) {
+                    archiveArtifacts artifacts: 'dist/**', fingerprint: true, onlyIfSuccessful: true
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Frontend pipeline completed successfully.'
+        }
+        failure {
+            echo 'Frontend pipeline failed. Check stage logs for details.'
+        }
+        always {
+            cleanWs(cleanWhenNotBuilt: false, deleteDirs: true, disableDeferredWipeout: true)
+        }
+    }
+}
