@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '10'))
+    }
+
+    environment {
+        BACKEND_DIR = 'backend/backend'
+        // Keep Maven output CI-friendly; wrapper downloads are cached in .mvn/wrapper
+        MAVEN_CLI_OPTS = '-B -ntp'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Tool Versions') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    sh '''
+                        set -e
+                        echo "== Java =="
+                        java -version || true
+                        echo "== Maven Wrapper =="
+                        chmod +x mvnw
+                        ./mvnw -v
+                    '''
+                }
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    sh './mvnw ${MAVEN_CLI_OPTS} -DskipTests clean compile'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    sh './mvnw ${MAVEN_CLI_OPTS} test'
+                }
+            }
+            post {
+                always {
+                    dir(env.BACKEND_DIR) {
+                        junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
+                    }
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    sh './mvnw ${MAVEN_CLI_OPTS} -DskipTests package'
+                }
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Backend pipeline completed successfully.'
+        }
+        failure {
+            echo 'Backend pipeline failed. Check stage logs and test reports for details.'
+        }
+        always {
+            cleanWs(cleanWhenNotBuilt: false, deleteDirs: true, disableDeferredWipeout: true)
+        }
+    }
+}
