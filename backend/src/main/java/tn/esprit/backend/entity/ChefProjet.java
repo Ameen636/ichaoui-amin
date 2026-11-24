@@ -5,4 +5,7 @@ class ChefProjet {
   private double salary = 0.0f ; 
   private String name ; 
   private String Address ; 
+
+
+
 }
